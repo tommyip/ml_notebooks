@@ -3,3 +3,6 @@ scipy
 seaborn
 jupyterlab
 graphviz
+scikit-learn
+ipywidgets
+tqdm
