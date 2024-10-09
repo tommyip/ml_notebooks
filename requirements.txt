@@ -6,3 +6,4 @@ graphviz
 scikit-learn
 ipywidgets
 tqdm
+pillow

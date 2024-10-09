@@ -61,6 +61,7 @@ class Variable(np.ndarray):
         ):
             # Average gradient in minibatch
             grad = np.mean(grad, axis=0)
+        
         # Accumulate gradient
         # (instead of simply setting it to deal with nodes with multiple children)
         self.grad += grad
@@ -94,35 +95,49 @@ def custom_op(func):
 
     return wrapper
 
+def binary_accuracy(y_pred, y):
+    return np.mean((y_pred >= 0.5) == y)
 
-class F:
-    @classmethod
-    def relu(cls, x):
-        return np.maximum(x, 0)
+def sigmoid(x):
+    return np.piecewise(
+        x,
+        [x > 0],
+        [lambda i: 1 / (1 + np.exp(-i)), lambda i: np.exp(i) / (1 + np.exp(i))],
+    )
+        
+def relu(x):
+    return np.maximum(x, 0)
 
-    @classmethod
-    def softmax(cls, x):
-        # Stable implementation
-        z = x - np.max(x, axis=-1)[:, np.newaxis]
-        numerator = np.exp(z)
-        return numerator / np.sum(numerator, axis=-1)[:, np.newaxis]
+def softmax(x):
+    # Stable implementation
+    z = x - np.max(x, axis=-1)[:, np.newaxis]
+    numerator = np.exp(z)
+    return numerator / np.sum(numerator, axis=-1)[:, np.newaxis]
 
-    @custom_op
-    @classmethod
-    def log_softmax(cls, x):
-        # Stable implementation
-        shiftx = x - np.max(x, axis=-1)[:, np.newaxis]
-        return shiftx - np.log(np.sum(np.exp(shiftx), axis=-1))[:, np.newaxis]
+@custom_op
+def log_softmax(x):
+    # Stable implementation
+    shiftx = x - np.max(x, axis=-1)[:, np.newaxis]
+    return shiftx - np.log(np.sum(np.exp(shiftx), axis=-1))[:, np.newaxis]
 
-    @classmethod
-    def mse_loss(cls, y_pred, y):
-        return np.mean(np.square(y - y_pred))
+def mse_loss(y_pred, y):
+    return np.mean(np.square(y - y_pred))
 
-    @custom_op
-    @classmethod
-    def nll_loss(cls, y_pred, y):
-        """y_pred is one-hot encoded (batch, logits), y is class labels (batch,)"""
-        return -np.mean(y_pred[range(y.shape[0]), y])
+@custom_op
+def bce_loss(y_pred, y):
+    z = y * y_pred + (1 - y) * np.log(1 - y_pred)
+    return -np.mean(z)
+
+@custom_op
+def bce_with_logits_loss(y_pred, y):
+    s = sigmoid(y_pred)
+    z = y * np.log(s) + (1 - y) * np.log(1 - s)
+    return -np.atleast_1d(np.mean(z))
+
+@custom_op
+def nll_loss(y_pred, y):
+    """y_pred is one-hot encoded (batch, logits), y is class labels (batch,)"""
+    return -np.mean(y_pred[range(y.shape[0]), y])
 
 
 def bprop(forward_fn):
@@ -184,13 +199,24 @@ def bprop_squeeze(inputs, idx, G):
 def bprop_expand_dims(inputs, idx, G):
     return np.squeeze(G, -1)
 
-
-@bprop(F.log_softmax)
+@bprop(log_softmax)
 def bprop_log_softmax(inputs, idx, G):
     return G - F.softmax(inputs[0]) * G.sum(axis=1, keepdims=True)
 
+@bprop(bce_loss)
+def bprop_bce_loss(inputs, idx, G):
+    y_pred, y = inputs
+    d = y / y_pred + (1 - y) / (1 - y_pred)
+    return -d * G
 
-@bprop(F.nll_loss)
+@bprop(bce_with_logits_loss)
+def bprop_bce_with_logits_loss(inputs, idx, G):
+    y_pred, y = inputs
+    z = sigmoid(y_pred)
+    d = y / z + (1 - y) / (1 - z)
+    return -d * G
+
+@bprop(nll_loss)
 def bprop_nll_loss(inputs, idx, G):
     y_pred, y = inputs
     if idx == 0:
@@ -287,7 +313,7 @@ def train(
                 y_pred = model(X_batch)
                 loss = loss_fn(y_pred, y_batch)
                 running_loss += loss.item()
-                acc = metrics_fn(y_pred, y_batch)
+                acc = metrics_fn(y_pred.view(np.ndarray), y_batch.view(np.ndarray))
                 running_acc += acc.item()
                 if j % log_iters == 0:
                     iter_pbar.set_postfix(loss=loss.item(), acc=acc.item())
