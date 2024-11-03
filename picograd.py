@@ -264,7 +264,7 @@ class Optimizer:
             var.grad[...] = 0.0
 
 class SGD(Optimizer):
-    def __init__(self, params, lr=0.001, weight_decay=0):
+    def __init__(self, params, lr=0.001, weight_decay=0, momentum=0):
         """
         lr : learning rate
         weight_decay : L2 penalty
@@ -272,14 +272,18 @@ class SGD(Optimizer):
         self.params = params
         self.lr = lr
         self.weight_decay = weight_decay
+        self.momentum = momentum
+        self.v = 0
 
     def step(self):
         with no_grad():
             for i, var in enumerate(self.params):
-                grad = var.grad
+                step = -self.lr * var.grad
                 if self.weight_decay > 0:
                     var *= 1 - self.lr * self.weight_decay
-                var -= self.lr * grad
+                if self.momentum > 0:
+                    step = step * self.momentum + step
+                var += step
 
 class AdamW(Optimizer):
     """https://arxiv.org/pdf/1711.05101"""
