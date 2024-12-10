@@ -2,6 +2,7 @@ numpy
 scipy
 seaborn
 jupyterlab
+jupyter-ai[all]
 graphviz
 scikit-learn
 ipywidgets
